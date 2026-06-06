@@ -17,17 +17,20 @@ else:
 SPREADSHEET_ID = "1aUYaj3-X3CYHDaOAo7OwiHsBvdaHDp1cH5TyzAAtx4s"
 WORKSHEET_NAME = "Sheet1"
 
-# আপনার কোডের লাইন ২৫-এর কাছাকাছি এই সেটিংসটি যুক্ত করুন:
+# [সমাধান ১ ও ২]: ব্রাউজার হেডার মাস্কিং এবং রিট্রাই মেকানিজম সহ জেনিয়াস ক্লায়েন্ট ইনিশিয়ালাইজেশন
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
+genius.verbose = False          # টার্মিনালে অতিরিক্ত লগ জেনারেশন বন্ধ রাখবে
+genius.remove_section_headers = True # লিরিক্স ফরম্যাটিং সহজ করবে
+genius.skip_non_songs = True    # ট্র্যাশ বা নন-সং পেজ স্কিপ করবে
+genius.retries = 3              # টাইমআউট বা এরর হলে ৩ বার চেষ্টা করবে
 
-# আপনার রিকোয়েস্টকে ক্রোম ব্রাউজার হিসেবে মাস্ক করবে
+# রিয়েল ক্রোম ব্রাউজারের হেডার সেট করা যেন Cloudflare বট হিসেবে ডিটেক্ট না করে
 genius.headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-
 # ডাটা রিড করার জন্য পাবলিক মেথড (ক্যাশড ফিজিবিলিটি সহ)
-@st.cache_data(ttl=10)  # ১০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে যাতে নতুন গান ড্যাশবোর্ডে দেখায়
+@st.cache_data(ttl=10)  # ১০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে
 def load_data_via_csv():
     """পাবলিক শিট থেকে সরাসরি CSV ফরমেটে ডেটা রিড করার ক্যাশড ফাংশন"""
     csv_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={WORKSHEET_NAME}"
@@ -109,7 +112,7 @@ if choice == "Dashboard & Tracker":
             col3.metric("Published to YouTube", len(df[df['Status'].astype(str).str.lower() == 'published']))
         
         st.write("---")
-        st.dataframe(df, use_container_width=True) # Streamlit স্ট্যান্ডার্ড অনুযায়ী আপডেট করা
+        st.dataframe(df, use_container_width=True)
         
         # কুইক কপি সেন্টার
         st.write("---")
@@ -143,9 +146,18 @@ elif choice == "Add & Auto-Scrap Song":
         if title and artist:
             if write_sheet is not None:
                 with st.spinner(f"Searching, Formatting and Syncing '{title}' to Google Sheet..."):
+                    
+                    # [সমাধান ৩]: সম্পূর্ণ ট্রাই-এক্সেপ্ট ফলব্যাক মেকানিজম
+                    raw_lyrics = ""
                     try:
                         genius_song = genius.search_song(title, artist)
                         raw_lyrics = genius_song.lyrics if genius_song else ""
+                    except Exception as genius_err:
+                        # ক্লাউডফ্লেয়ার ব্লক করলেও অ্যাপ ক্র্যাশ না করে এই ওয়ার্নিংটি ফ্রন্টএন্ডে শো করবে
+                        st.warning("⚠️ Genius Cloudflare Protection-এর কারণে লিরিক্স অটো-স্ক্র্যাপ করা যায়নি। তবে গানটি ডাটাবেজে অ্যাড হচ্ছে!")
+                        raw_lyrics = ""
+                    
+                    try:
                         final_lyrics = auto_structure_lyrics(raw_lyrics)
                         final_prompt = generate_conditional_prompt(mood, tempo)
                         
@@ -157,13 +169,13 @@ elif choice == "Add & Auto-Scrap Song":
                         except:
                             next_id = "RF-001"
                         
-                        # গুগল শিটে অ্যাপেন্ড করা
+                        # গুগল শিটে ডেটা পুশ করা
                         write_sheet.append_row([next_id, title, artist, mood, tempo, final_prompt, final_lyrics, "Pending"])
                         
                         st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং শিটে সেভ হয়েছে!")
                         st.balloons()
                         
-                        # ক্যাশ ক্লিয়ার করে ড্যাশবোর্ডকে ফোর্স রিফ্রেশ করা
+                        # ক্যাশ ক্লিয়ার করে ড্যাশবোর্ড আপডেট করা
                         st.cache_data.clear()
                     except Exception as e:
                         st.error(f"Automation Engine Failure: {str(e)}")
