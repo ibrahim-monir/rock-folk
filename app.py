@@ -17,13 +17,13 @@ else:
 SPREADSHEET_ID = "1aUYaj3-X3CYHDaOAo7OwiHsBvdaHDp1cH5TyzAAtx4s"
 WORKSHEET_NAME = "Sheet1"
 
+# আপনার কোডের লাইন ২৫-এর কাছাকাছি এই সেটিংসটি যুক্ত করুন:
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 
-# --- এই ৪টি লাইন যোগ করুন ---
-genius.verbose = False          # টার্মিনালে অতিরিক্ত লগ জেনারেশন কমাবে
-genius.remove_section_headers = True # লিরিক্স ক্লিনিং সহজ করবে
-genius.skip_non_songs = True    # ইন্টারভিউ বা আর্টিকেলের মতো ট্র্যাশ পেজ স্কিপ করবে
-genius.retries = 3              # ব্লক খেলে অটোমেটিক ৩ বার রিট্রাই করবে
+# আপনার রিকোয়েস্টকে ক্রোম ব্রাউজার হিসেবে মাস্ক করবে
+genius.headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}ে
 
 
 # ডাটা রিড করার জন্য পাবলিক মেথড (ক্যাশড ফিজিবিলিটি সহ)
