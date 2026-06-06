@@ -5,60 +5,54 @@ import gspread
 from google.oauth2.service_account import Credentials
 import re
 
-# ==============================================================================
-# ১. কনফিগারেশন ও এপিআই সেটআপ (CONFIG & API SETUP)
-# ==============================================================================
-if "genius_token" in st.secrets:
-    GENIUS_TOKEN = st.secrets["genius_token"]
-else:
-    GENIUS_TOKEN = "jwdd4m7rPViQYEJi7CsvPqIaZQ5cwWiQPMW8ewrzxy6xzhB-X0tPrKO6Jk2rUZEg"
-
-# আপনার স্প্রেডশিটের ইউনিক আইডি
+# Config & Settings
+GENIUS_TOKEN = "jwdd4m7rPViQYEJi7CsvPqIaZQ5cwWiQPMW8ewrzxy6xzhB-X0tPrKO6Jk2rUZEg"
 SPREADSHEET_ID = "1aUYaj3-X3CYHDaOAo7OwiHsBvdaHDp1cH5TyzAAtx4s"
 WORKSHEET_NAME = "Sheet1"
 
-# ব্রাউজার হেডার মাস্কিং এবং রিট্রাই মেকানিজম সহ জেনিয়াস ক্লায়েন্ট
+# Initialize Genius Client with safe headers
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 genius.verbose = False          
 genius.remove_section_headers = True 
 genius.skip_non_songs = True    
 genius.retries = 3              
-
 genius.headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-# ডাটা রিড করার জন্য পাবলিক মেথড
-@st.cache_data(ttl=5)  # দ্রুত রিফ্রেশ নিশ্চিত করতে TTL ৫ সেকেন্ড করা হলো
-def load_data_via_csv():
-    """পাবলিক শিট থেকে সরাসরি CSV ফরমেটে ডেটা রিড করার ক্যাশড ফাংশন"""
+@st.cache_resource
+def get_gspread_client():
+    if "gcp_service_account" in st.secrets:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        return gspread.authorize(creds)
+    return None
+
+gc = get_gspread_client()
+
+def load_pipeline_data():
+    if gc:
+        try:
+            sh = gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
+            records = sh.get_all_records()
+            if records:
+                df = pd.DataFrame(records)
+                df.columns = [col.strip() for col in df.columns]
+                return df
+        except Exception as e:
+            # Fallback to public CSV if service account fails read
+            pass
+            
     csv_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={WORKSHEET_NAME}"
     try:
         df = pd.read_csv(csv_url)
         df = df.dropna(how='all', axis=1)
-        # স্ট্রিপ কলাম নেমস (স্পেস জনিত এরর এড়াতে)
         df.columns = [col.strip() for col in df.columns]
         return df
     except Exception as e:
-        st.error(f"Error fetching data via CSV link: {str(e)}")
+        st.error(f"Sync Link Error: {str(e)}")
         return None
 
-# ডাটা রাইট বা অ্যাপেন্ড করার জন্য ক্লাউড কানেকশন
-@st.cache_resource
-def init_google_sheet_write():
-    """ডাটা পুশ করার জন্য ক্রেডেনশিয়াল লোড করা"""
-    if "gcp_service_account" in st.secrets:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-        client = gspread.authorize(creds)
-        return client.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
-    return None
-
-write_sheet = init_google_sheet_write()
-
-# ==============================================================================
-# ২. কোর লজিক ইঞ্জিন (DYNAMIC PROMPT & LYRICS FORMATTER)
-# ==============================================================================
 def generate_conditional_prompt(mood, tempo):
     if mood == 'Energetic' and 'Fast' in tempo:
         return "Upbeat Bengali folk rock, modern pop punk energy, 130 BPM, bright electric guitar solos, catchy rhythm, driving drums, cheerful powerful vocals"
@@ -90,22 +84,18 @@ def auto_structure_lyrics(raw_lyrics):
         structured += "[Verse 1]\n" + "\n".join(lines)
     return structured
 
-# ==============================================================================
-# ৩. ইউজার ইন্টারফেস (STREAMLIT APP UI)
-# ==============================================================================
+# UI Layout Setup
 st.set_page_config(page_title="Rock Folk BD — Pipeline", layout="wide")
 st.title("🎸 Rock Folk BD — AI Music Production Cloud Pipeline")
 
 menu = ["Dashboard & Tracker", "Add & Auto-Scrap Song"]
 choice = st.sidebar.selectbox("Navigation Menu", menu)
 
-# --- ট্যাব ১: ড্যাশবোর্ড এবং ট্র্যাকার ---
 if choice == "Dashboard & Tracker":
     st.subheader("📊 Live Production Pipeline Tracker")
+    df = load_pipeline_data()
     
-    df = load_data_via_csv()
     if df is not None and not df.empty:
-        # কাউন্টার কার্ডস (হেডার কেস হ্যান্ডেল করা হয়েছে)
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Tracks in Database", len(df))
         
@@ -117,73 +107,60 @@ if choice == "Dashboard & Tracker":
         st.write("---")
         st.dataframe(df, use_container_width=True)
         
-        # কুইক কপি সেন্টার
         st.write("---")
         st.subheader("⚡ Quick Copy Center")
         
-        title_col = 'Title' if 'Title' in df.columns else df.columns[1]
+        title_col = 'Title' if 'Title' in df.columns else ('Song Title' if 'Song Title' in df.columns else df.columns[1])
         selected_song = st.selectbox("Select Song to Extract Assets", df[title_col].tolist())
         song_row = df[df[title_col] == selected_song].iloc[0]
         
         c1, c2 = st.columns(2)
         with c1:
-            # শিটের বড় হাতের 'Prompt' হেডারের সাথে ম্যাচ করা ফাইলব্যাক সহ
-            prompt_data = song_row.get('Prompt', song_row.get('prompt', 'N/A'))
-            st.text_area("Suno/Udio Style Prompt (Copy Ready)", prompt_data, height=100, use_container_width=True)
+            prompt_data = song_row.get('Prompt', song_row.get('Style Box Prompt (Suno/Udio)', 'N/A'))
+            st.text_area("Suno/Udio Style Prompt (Copy Ready)", prompt_data, height=100)
         with c2:
-            # শিটের বড় হাতের 'Lyrics' হেডারের সাথে ম্যাচ করা ফাইলব্যাক সহ
-            lyrics_data = song_row.get('Lyrics', song_row.get('lyrics', 'N/A'))
-            st.text_area("Structured Lyrics Box (Copy Ready)", lyrics_data, height=250, use_container_width=True)
+            lyrics_data = song_row.get('Lyrics', song_row.get('AI Lyrics Box Format (Meta-Tags সহ)', 'N/A'))
+            st.text_area("Structured Lyrics Box (Copy Ready)", lyrics_data, height=250)
     else:
-        st.info("ℹ️ ডাটাবেজে বর্তমানে কোনো রেকর্ড খুঁজে পাওয়া যায়নি অথবা কলাম হেডার অ্যাসাইন করা নেই।")
+        st.info("ℹ️ ডাটাবেজে বর্তমানে কোনো রেকর্ড খুঁজে পাওয়া যায়নি। অনুগ্রহ করে গুগল শিটের পারমিশন চেক করুন।")
 
-# --- ট্যাব ২: নতুন গান অ্যাড ও অটো-স্ক্র্যাপ ---
 elif choice == "Add & Auto-Scrap Song":
     st.subheader("🤖 Add New Track with Cloud Automation")
     
     col_a, col_b = st.columns(2)
     with col_a:
-        title = st.text_input("Song Title (যেমন: Khachar Vetor Ochin Pakhi)")
-        artist = st.text_input("Artist / Mystic Singer (যেমন: Lalon Shah)")
+        title = st.text_input("Song Title")
+        artist = st.text_input("Artist / Mystic Singer")
     with col_b:
         mood = st.selectbox("Select Target Mood", ["Energetic", "Melancholic", "Mystical", "Heavy Metal"])
         tempo = st.selectbox("Select Target Tempo", ["Fast (120-140 BPM)", "Mid (90-110 BPM)", "Slow (70-85 BPM)"])
         
     if st.button("Scrape Lyrics & Build Production Package"):
         if title and artist:
-            if write_sheet is not None:
-                with st.spinner(f"Searching, Formatting and Syncing '{title}' to Google Sheet..."):
-                    
-                    raw_lyrics = ""
-                    try:
-                        genius_song = genius.search_song(title, artist)
-                        raw_lyrics = genius_song.lyrics if genius_song else ""
-                    except Exception as genius_err:
-                        st.warning("⚠️ Genius Cloudflare Protection-এর কারণে লিরিক্স অটো-স্ক্র্যাপ করা যায়নি। তবে গানটি ডাটাবেজে অ্যাড হচ্ছে!")
+            if gc:
+                try:
+                    sh = gc.open_by_key(SPREADSHEET_ID).worksheet(WORKSHEET_NAME)
+                    with st.spinner("Processing Automation Pipeline..."):
                         raw_lyrics = ""
-                    
-                    try:
+                        try:
+                            genius_song = genius.search_song(title, artist)
+                            raw_lyrics = genius_song.lyrics if genius_song else ""
+                        except:
+                            st.warning("⚠️ Genius Cloudflare Protection-এর কারণে লিরিক্স অটো-স্ক্র্যাপ করা যায়নি।")
+                            raw_lyrics = ""
+                        
                         final_lyrics = auto_structure_lyrics(raw_lyrics)
                         final_prompt = generate_conditional_prompt(mood, tempo)
                         
-                        # নতুন আইডি জেনারেশন
-                        csv_url_raw = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={WORKSHEET_NAME}"
-                        try:
-                            current_df = pd.read_csv(csv_url_raw)
-                            next_id = f"RF-{len(current_df) + 1:03d}"
-                        except:
-                            next_id = "RF-001"
+                        current_df = load_pipeline_data()
+                        next_id = f"RF-{len(current_df) + 1:03d}" if current_df is not None else "RF-001"
                         
-                        # গুগল শিটের এক্সাক্ট কলাম সিকোয়েন্স অনুযায়ী অ্যাপেন্ড (ID, Title, Artist, Mood, Tempo, Prompt, Lyrics, Status)
-                        write_sheet.append_row([next_id, title, artist, mood, tempo, final_prompt, final_lyrics, "Pending"])
-                        
-                        st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং শিটে সেভ হয়েছে!")
+                        sh.append_row([next_id, title, artist, mood, tempo, final_prompt, final_lyrics, "Pending"])
+                        st.success(f"🎯 '{title}' সফলভাবে শিটে সেভ হয়েছে!")
                         st.balloons()
-                        
-                        st.cache_data.clear()
-                    except Exception as e:
-                        st.error(f"Automation Engine Failure: {str(e)}")
+                except Exception as e:
+                    st.error(f"Write Failure: {str(e)}")
             else:
-                st.error("❌ Write Access Error: Streamlit Secrets এ '[gcp_service_account]' সেটিংস ঠিক নেই।")
+                st.error("❌ Write Access Error: Streamlit Secrets সেটিংস চেক করুন।")
         else:
-            st.warning("⚠️ অনুগ্রহ করে গানের নাম এবং শিল্পী—উভয় বক্সই পূরণ করুন।")
+            st.warning("⚠️ অনুগ্রহ করে সব ঘর পূরণ করুন।")
