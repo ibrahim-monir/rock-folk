@@ -115,9 +115,9 @@ if choice == "Dashboard & Tracker":
         
         c1, c2 = st.columns(2)
         with c1:
-            st.text_area("Suno/Udio Style Prompt (Copy Ready)", song_row.get('Prompt', 'N/A'), height=80, width='stretch)
+            st.text_area("Suno/Udio Style Prompt (Copy Ready)", song_row.get('Prompt', 'N/A'), height=80, width='stretch')
         with c2:
-            st.text_area("Structured Lyrics Box (Copy Ready)", song_row.get('Lyrics', 'N/A'), height=250, width='stretch)
+            st.text_area("Structured Lyrics Box (Copy Ready)", song_row.get('Lyrics', 'N/A'), height=250, width='stretch')
     else:
         st.info("ℹ️ ডাটাবেজে বর্তমানে কোনো রেকর্ড খুঁজে পাওয়া যায়নি অথবা কলাম হেডার অ্যাসাইন করা নেই।")
 
