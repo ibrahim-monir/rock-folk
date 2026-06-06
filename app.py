@@ -4,7 +4,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import re
-import requests
 
 # ==============================================================================
 # ১. কনফিগারেশন ও এপিআই সেটআপ (CONFIG & API SETUP)
@@ -14,19 +13,19 @@ if "genius_token" in st.secrets:
 else:
     GENIUS_TOKEN = "jwdd4m7rPViQYEJi7CsvPqIaZQ5cwWiQPMW8ewrzxy6xzhB-X0tPrKO6Jk2rUZEg"
 
-# আপনার স্প্রেডশিটের ইউনিক আইডি (URL থেকে নেওয়া)
+# আপনার স্প্রেডশিটের ইউনিক আইডি
 SPREADSHEET_ID = "1aUYaj3-X3CYHDaOAo7OwiHsBvdaHDp1cH5TyzAAtx4s"
 WORKSHEET_NAME = "Sheet1"
 
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 
-# ডাটা রিড করার জন্য পাবলিক মেথড (ক্রেডেনশিয়াল ছাড়া)
+# ডাটা রিড করার জন্য পাবলিক মেথড (ক্যাশড ফিজিবিলিটি সহ)
+@st.cache_data(ttl=10)  # ১০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে যাতে নতুন গান ড্যাশবোর্ডে দেখায়
 def load_data_via_csv():
     """পাবলিক শিট থেকে সরাসরি CSV ফরমেটে ডেটা রিড করার ক্যাশড ফাংশন"""
     csv_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={WORKSHEET_NAME}"
     try:
         df = pd.read_csv(csv_url)
-        # আননেসেসারি খালি কলাম ট্রিম করা
         df = df.dropna(how='all', axis=1)
         return df
     except Exception as e:
@@ -36,7 +35,7 @@ def load_data_via_csv():
 # ডাটা রাইট বা অ্যাপেন্ড করার জন্য ক্লাউড কানেকশন
 @st.cache_resource
 def init_google_sheet_write():
-    """ডাটা পুশ করার জন্য ক্রেডেনশিয়াল লোড করা"""
+    """ডাটা পুশ করার জন্য ক্রেডেনশিয়াল লোড করা"""
     if "gcp_service_account" in st.secrets:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
@@ -103,7 +102,7 @@ if choice == "Dashboard & Tracker":
             col3.metric("Published to YouTube", len(df[df['Status'].astype(str).str.lower() == 'published']))
         
         st.write("---")
-        st.dataframe(df, width='stretch')
+        st.dataframe(df, use_container_width=True) # Streamlit স্ট্যান্ডার্ড অনুযায়ী আপডেট করা
         
         # কুইক কপি সেন্টার
         st.write("---")
@@ -115,11 +114,11 @@ if choice == "Dashboard & Tracker":
         
         c1, c2 = st.columns(2)
         with c1:
-            st.text_area("Suno/Udio Style Prompt (Copy Ready)", song_row.get('Prompt', 'N/A'), height=80, width='stretch')
+            st.text_area("Suno/Udio Style Prompt (Copy Ready)", song_row.get('Prompt', 'N/A'), height=80, use_container_width=True)
         with c2:
-            st.text_area("Structured Lyrics Box (Copy Ready)", song_row.get('Lyrics', 'N/A'), height=250, width='stretch')
+            st.text_area("Structured Lyrics Box (Copy Ready)", song_row.get('Lyrics', 'N/A'), height=250, use_container_width=True)
     else:
-        st.info("ℹ️ ডাটাবেজে বর্তমানে কোনো রেকর্ড খুঁজে পাওয়া যায়নি অথবা কলাম হেডার অ্যাসাইন করা নেই।")
+        st.info("ℹ️ ডাটাবেজে বর্তমানে কোনো রেকর্ড খুঁজে পাওয়া যায়নি অথবা কলাম হেডার অ্যাসাইন করা নেই।")
 
 # --- ট্যাব ২: নতুন গান অ্যাড ও অটো-স্ক্র্যাপ ---
 elif choice == "Add & Auto-Scrap Song":
@@ -143,19 +142,25 @@ elif choice == "Add & Auto-Scrap Song":
                         final_lyrics = auto_structure_lyrics(raw_lyrics)
                         final_prompt = generate_conditional_prompt(mood, tempo)
                         
-                        # নতুন আইডি জেনারেশন
-                        current_df = load_data_via_csv()
-                        next_id = f"RF-{len(current_df) + 1:03d}" if current_df is not None else "RF-001"
+                        # নতুন আইডি জেনারেশন (ক্যাশ বাইপাস করে রিয়েল কাউন্ট নেওয়া)
+                        csv_url_raw = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={WORKSHEET_NAME}"
+                        try:
+                            current_df = pd.read_csv(csv_url_raw)
+                            next_id = f"RF-{len(current_df) + 1:03d}"
+                        except:
+                            next_id = "RF-001"
                         
                         # গুগল শিটে অ্যাপেন্ড করা
                         write_sheet.append_row([next_id, title, artist, mood, tempo, final_prompt, final_lyrics, "Pending"])
                         
-                        st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং শিটে সেভ হয়েছে!")
+                        st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং শিটে সেভ হয়েছে!")
                         st.balloons()
-                        st.cache_data.clear() # ক্যাশ ক্লিয়ার করে নতুন ডেটা রিড করার জন্য
+                        
+                        # ক্যাশ ক্লিয়ার করে ড্যাশবোর্ডকে ফোর্স রিফ্রেশ করা
+                        st.cache_data.clear()
                     except Exception as e:
                         st.error(f"Automation Engine Failure: {str(e)}")
             else:
-                st.error("❌ Write Access Error: Streamlit Secrets এ '[gcp_service_account]' সেটআপ করা নেই। তাই নতুন গান যোগ করা যাচ্ছে না।")
+                st.error("❌ Write Access Error: Streamlit Secrets এ '[gcp_service_account]' সেটআপ করা নেই অথবা প্রজেক্ট আইডি ভুল।")
         else:
-            st.warning("⚠️ অনুগ্রহ করে গানের নাম এবং শিল্পী—উভয় বক্সই পূরণ করুন।")
+            st.warning("⚠️ অনুগ্রহ করে গানের নাম এবং শিল্পী—উভয় বক্সই পূরণ করুন।")
