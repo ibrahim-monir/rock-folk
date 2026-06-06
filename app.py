@@ -2,48 +2,45 @@ import streamlit as st
 import lyricsgenius
 import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
 import re
 
 # ==============================================================================
 # ১. কনফিগারেশন ও এপিআই সেটআপ (CONFIG & API SETUP)
 # ==============================================================================
-# Streamlit Secrets ড্যাশবোর্ড থেকে জেনিয়াস টোকেন সিকিউরলি লোড করা হচ্ছে
+# Streamlit Secrets থেকে জেনিয়াস টোকেন লোড করা (অথবা আপনার দেওয়া ডিফল্ট টোকেন)
 if "genius_token" in st.secrets:
     GENIUS_TOKEN = st.secrets["genius_token"]
 else:
-    # Secrets-এ সেট না থাকলে আপনার দেওয়া টোকেনটি ডিফল্ট হিসেবে কাজ করবে
     GENIUS_TOKEN = "jwdd4m7rPViQYEJi7CsvPqIaZQ5cwWiQPMW8ewrzxy6xzhB-X0tPrKO6Jk2rUZEg"
 
-# আপনার গুগল স্প্রেডশিট ফাইলের নাম এবং ভেতরের সাব-শিটের নাম
-SHEET_NAME = "Project Alpha"  
-WORKSHEET_NAME = "Rock Folk"
+# আপনার নতুন গুগল স্প্রেডশিট ফাইলের নাম এবং ভেতরের সাব-শিটের নাম
+SHEET_NAME = "Lyrics & Prompts Matrix"  
+WORKSHEET_NAME = "Sheet1"
 
 # জেনিয়াস এপিআই অবজেক্ট তৈরি
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 
 @st.cache_resource
-def init_google_sheet():
-    """গুগল শিটের সাথে ক্লাউড কানেকশন এস্টাবলিশ করার ফাংশন"""
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # Streamlit Cloud-এর Secrets ড্যাশবোর্ড থেকে gcp_service_account লোড করবে
-    creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-    client = gspread.authorize(creds)
-    return client.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+def init_public_google_sheet():
+    """পাবলিকলি শেয়ার করা (Anyone with link can edit) গুগল শিটের সাথে ক্রেডেনশিয়াল ছাড়া কানেক্ট করার মেথড"""
+    # ক্রেডেনশিয়াল ছাড়া ওপেন ক্লায়েন্ট হিসেবে gspread কানেক্ট করা
+    client = gspread.public() 
+    # পাবলিক শিটের কি (URL থেকে নেওয়া) ব্যবহার করে সরাসরি ওয়ার্কশিট ওপেন করা
+    sheet_key = "1cIGldrClS15iN2MfOapN1m9TdbBdJ7oPIdsruRraiHw"
+    return client.open_by_key(sheet_key).worksheet(WORKSHEET_NAME)
 
-# কানেকশন এরর হ্যান্ডেল করার জন্য গলোবাল অবজেক্ট ট্র্যাকিং
 sheet = None
 try:
-    sheet = init_google_sheet()
+    sheet = init_public_google_sheet()
 except Exception as e:
     st.error(f"❌ Google Sheet Connection Error: {str(e)}")
-    st.info("💡 সমাধান: নিশ্চিত করুন Streamlit Secrets-এ ক্রেডনশিয়াল দেওয়া আছে এবং আপনার সার্ভিস অ্যাকাউন্ট ইমেইলটি গুগল শিটে 'Editor' হিসেবে Share করা আছে।")
+    st.info("💡 সমাধান: নিশ্চিত করুন আপনার গুগল শিটের 'Anyone with the link can edit' অপশনটি সঠিকভাবে চালু আছে কি না।")
 
 # ==============================================================================
 # ২. কোর লজিক ইঞ্জিন (DYNAMIC PROMPT & LYRICS FORMATTER)
 # ==============================================================================
 def generate_conditional_prompt(mood, tempo):
-    """ইউজারের সিলেক্ট করা মুড ও টেম্পোর ওপর ভিত্তি করে Suno/Udio প্রম্পট তৈরি করে"""
+    """মুড ও টেম্পোর ওপর ভিত্তি করে Suno/Udio প্রম্পট তৈরি করে"""
     if mood == 'Energetic' and 'Fast' in tempo:
         return "Upbeat Bengali folk rock, modern pop punk energy, 130 BPM, bright electric guitar solos, catchy rhythm, driving drums, cheerful powerful vocals"
     elif mood == 'Melancholic' and 'Mid' in tempo:
@@ -56,16 +53,14 @@ def generate_conditional_prompt(mood, tempo):
         return "Modern Bengali folk fusion, energetic alternative rock, punchy live drums, high energy"
 
 def auto_structure_lyrics(raw_lyrics):
-    """গুগল/জেনিয়াস থেকে পাওয়া র লিরিক্সকে [Verse] এবং [Chorus] মেটা-ট্যাগে সাজায়"""
+    """র লিরিক্সকে [Verse] এবং [Chorus] মেটা-ট্যাগে সাজায়"""
     if not raw_lyrics: 
         return "Lyrics Not Found. Please add manually."
     
-    # জেনিয়াসের ডিফল্ট হেডার স্ক্র্যাপার আর্ট রিমুভ করা
     clean_text = re.sub(r'.*?Lyrics', '', raw_lyrics, count=1)
-    clean_text = re.sub(r'\[.*?\]', '', clean_text)  # পূর্বের থার্ড-পার্টি ট্যাগ থাকলে ডিলিট করা
+    clean_text = re.sub(r'\[.*?\]', '', clean_text)  
     lines = [line.strip() for line in clean_text.split('\n') if line.strip()]
     
-    # ৪ লাইনের ব্লকে এআই ফ্রেন্ডলি স্ট্রাকচার তৈরি
     structured = ""
     if len(lines) >= 2:
         structured += "[Verse 1]\n" + "\n".join(lines[:2]) + "\n\n"
@@ -85,7 +80,6 @@ st.set_page_config(page_title="Rock Folk BD — Pipeline", layout="wide")
 st.title("🎸 Rock Folk BD — AI Music Production Cloud Pipeline")
 st.write("২০০টি গানের অটোমেটেড ক্লাউড ডাটাবেজ, লিরিক্স স্ক্র্যাপিং এবং কন্ডিশনাল প্রম্পট পাইপলাইন।")
 
-# বামদিকের নেভিগেশন মেনু
 menu = ["Dashboard & Tracker", "Add & Auto-Scrap Song"]
 choice = st.sidebar.selectbox("Navigation Menu", menu)
 
@@ -106,15 +100,12 @@ if choice == "Dashboard & Tracker":
                 col3.metric("Published to YouTube", len(df[df['Status'].str.lower() == 'published']) if 'Status' in df.columns else 0)
                 
                 st.write("---")
-                
-                # ইন্টারেক্টিভ ক্লাউড ডাটা টেবিল
                 st.dataframe(df, use_container_width=True)
                 
-                # কুইক কপিセンター (এক ক্লিকে Suno-তে পেস্ট করার জন্য)
+                # কুইক কপি সেন্টার
                 st.write("---")
                 st.subheader("⚡ Quick Copy Center")
                 
-                # Title কলাম ট্র্যাকিং এবং ড্রপডাউন সিলেকশন
                 title_col = 'Title' if 'Title' in df.columns else df.columns[1]
                 selected_song = st.selectbox("Select Song to Extract Assets", df[title_col].tolist())
                 song_row = df[df[title_col] == selected_song].iloc[0]
@@ -129,7 +120,7 @@ if choice == "Dashboard & Tracker":
         except Exception as e:
             st.error(f"Error reading records: {str(e)}")
     else:
-        st.warning("⚠️ ক্লাউড ডাটাবেজের সাথে কানেকশন এস্টাবলিশড নেই। অনুগ্রহ করে এরর মেসেজটি চেক করুন।")
+        st.warning("⚠️ ক্লাউড ডাটাবেজের সাথে কানেকশন এস্টাবলিশড নেই।")
 
 # --- ট্যাব ২: নতুন গান অ্যাড ও অটো-স্ক্র্যাপ ---
 elif choice == "Add & Auto-Scrap Song":
@@ -164,12 +155,10 @@ elif choice == "Add & Auto-Scrap Song":
                         
                         sheet.append_row([next_id, title, artist, mood, tempo, final_prompt, final_lyrics, "Pending"])
                         
-                        st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং 'Project Alpha' শিটে সেভ হয়েছে!")
+                        st.success(f"🎯 '{title}' সফলভাবে প্রসেস করা হয়েছে এবং 'Lyrics & Prompts Matrix' শিটে সেভ হয়েছে!")
                         st.balloons()
                         
                     except Exception as e:
                         st.error(f"Automation Engine Failure: {str(e)}")
             else:
                 st.warning("⚠️ অনুগ্রহ করে গানের নাম এবং শিল্পী—উভয় বক্সই পূরণ করুন।")
-    else:
-        st.warning("⚠️ ডাটাবেজ অফলাইন। গান অ্যাড করতে আগে কানেকশন সিকিউর করুন।")
