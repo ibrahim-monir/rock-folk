@@ -23,7 +23,7 @@ genius = lyricsgenius.Genius(GENIUS_TOKEN)
 # আপনার রিকোয়েস্টকে ক্রোম ব্রাউজার হিসেবে মাস্ক করবে
 genius.headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-}ে
+}
 
 
 # ডাটা রিড করার জন্য পাবলিক মেথড (ক্যাশড ফিজিবিলিটি সহ)
