@@ -15,7 +15,7 @@ else:
     GENIUS_TOKEN = "jwdd4m7rPViQYEJi7CsvPqIaZQ5cwWiQPMW8ewrzxy6xzhB-X0tPrKO6Jk2rUZEg"
 
 # আপনার স্প্রেডশিটের ইউনিক আইডি (URL থেকে নেওয়া)
-SPREADSHEET_ID = "1cIGldrClS15iN2MfOapN1m9TdbBdJ7oPIdsruRraiHw"
+SPREADSHEET_ID = "1aUYaj3-X3CYHDaOAo7OwiHsBvdaHDp1cH5TyzAAtx4s"
 WORKSHEET_NAME = "Sheet1"
 
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
