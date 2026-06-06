@@ -19,6 +19,13 @@ WORKSHEET_NAME = "Sheet1"
 
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 
+# --- এই ৪টি লাইন যোগ করুন ---
+genius.verbose = False          # টার্মিনালে অতিরিক্ত লগ জেনারেশন কমাবে
+genius.remove_section_headers = True # লিরিক্স ক্লিনিং সহজ করবে
+genius.skip_non_songs = True    # ইন্টারভিউ বা আর্টিকেলের মতো ট্র্যাশ পেজ স্কিপ করবে
+genius.retries = 3              # ব্লক খেলে অটোমেটিক ৩ বার রিট্রাই করবে
+
+
 # ডাটা রিড করার জন্য পাবলিক মেথড (ক্যাশড ফিজিবিলিটি সহ)
 @st.cache_data(ttl=10)  # ১০ সেকেন্ড পর পর ক্যাশ অটো-রিফ্রেশ হবে যাতে নতুন গান ড্যাশবোর্ডে দেখায়
 def load_data_via_csv():
